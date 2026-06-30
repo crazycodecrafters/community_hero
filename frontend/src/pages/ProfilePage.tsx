@@ -10,6 +10,7 @@ import { UserProfile, Issue, LeaderboardEntry, Badge } from '../types';
 import { NeuCard } from '../components/ui/NeuCard';
 import { NeuButton } from '../components/ui/NeuButton';
 
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 const XP_PER_LEVEL = 500;
 
 const containerVariants = {
@@ -49,8 +50,8 @@ export const ProfilePage = () => {
     Promise.all([
       getProfile().catch(() => null),
       getIssues({ limit: 5 }).catch(() => ({ issues: [], total: 0 })),
-      fetch('/api/gamification/leaderboard?limit=10').then((r) => r.json()).catch(() => ({ data: [] })),
-      fetch('/api/gamification/badges').then((r) => r.json()).catch(() => ({ data: [] })),
+      fetch(`${API_URL}/gamification/leaderboard?limit=10`).then((r) => r.json()).catch(() => ({ data: [] })),
+      fetch(`${API_URL}/gamification/badges`).then((r) => r.json()).catch(() => ({ data: [] })),
     ])
       .then(([prof, issuesRes, lbRes, badgeRes]) => {
         if (prof) {

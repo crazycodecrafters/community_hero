@@ -22,29 +22,29 @@ export const MainLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-neu-50 pb-20">
+    <div className="min-h-screen bg-neu-50 pb-20 sm:pb-24">
       <Outlet />
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-neu-50/90 backdrop-blur-lg border-t border-neu-200/50">
-        <div className="max-w-lg mx-auto flex justify-around items-center py-2 px-2">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 glass-nav pb-safe">
+        <div className="max-w-md mx-auto flex justify-between items-center py-2 px-6">
           {navItems.map(({ to, icon: Icon, label, badge }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-neup_sm transition-all ${
-                  isActive ? 'text-primary-DEFAULT shadow-[inset_2px_2px_4px_#c9cdd6,inset_-2px_-2px_4px_#ffffff]' : 'text-neu-500'
+                `flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
+                  isActive ? 'text-primary-DEFAULT bg-primary-DEFAULT/10 scale-110' : 'text-slate-400 hover:text-slate-600'
                 }`
               }
             >
               <div className="relative">
-                <Icon size={22} weight={label === 'Report' ? 'fill' : 'regular'} />
+                <Icon size={24} weight={label === 'Report' ? 'fill' : 'regular'} />
                 {badge && badge > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white">
                     {badge > 9 ? '9+' : badge}
                   </span>
                 )}
               </div>
-              <span className="text-[10px] font-medium">{label}</span>
+              <span className="text-[10px] font-semibold tracking-wide">{label}</span>
             </NavLink>
           ))}
         </div>

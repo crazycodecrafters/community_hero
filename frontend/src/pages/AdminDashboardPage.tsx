@@ -18,6 +18,8 @@ import {
   ShieldCheck, Warning
 } from 'phosphor-react';
 
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
 const TABS: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'queue', label: 'Queue', icon: <Queue size={18} weight="fill" /> },
   { key: 'analytics', label: 'Analytics', icon: <ChartBar size={18} weight="fill" /> },
@@ -104,7 +106,7 @@ export const AdminDashboardPage: React.FC = () => {
   const fetchModerationQueue = useCallback(async () => {
     setModerationLoading(true);
     try {
-      const data = await fetchWithAuth('http://localhost:8000/api/admin/moderation/queue');
+      const data = await fetchWithAuth(`${API_URL}/admin/moderation/queue`);
       setModerationQueue(data.data || []);
     } catch (err: any) {
       toast.error(err.message);
@@ -147,7 +149,7 @@ export const AdminDashboardPage: React.FC = () => {
   const loadQueue = async () => {
     setQueueLoading(true);
     try {
-      const data = await fetchWithAuth('/api/admin/queue?limit=100');
+      const data = await fetchWithAuth(`${API_URL}/admin/queue?limit=100`);
       setIssues(sortByPriority(data.data || []));
     } catch (err: any) {
       toast.error(err.message);
@@ -159,7 +161,7 @@ export const AdminDashboardPage: React.FC = () => {
   const loadAnalytics = async () => {
     setAnalyticsLoading(true);
     try {
-      const data = await fetchWithAuth('/api/admin/analytics');
+      const data = await fetchWithAuth(`${API_URL}/admin/analytics`);
       setAnalytics(data.data);
     } catch (err: any) {
       toast.error(err.message);
@@ -171,7 +173,7 @@ export const AdminDashboardPage: React.FC = () => {
   const loadUsers = async () => {
     setUsersLoading(true);
     try {
-      const data = await fetchWithAuth('/api/admin/users');
+      const data = await fetchWithAuth(`${API_URL}/admin/users`);
       setUsersList(data.data || []);
     } catch (err: any) {
       toast.error(err.message);
@@ -183,7 +185,7 @@ export const AdminDashboardPage: React.FC = () => {
   const loadPredictions = async () => {
     setPredictionsLoading(true);
     try {
-      const data = await fetchWithAuth('/api/admin/predictions');
+      const data = await fetchWithAuth(`${API_URL}/admin/predictions`);
       setPredictions(data.data);
     } catch (err: any) {
       toast.error(err.message);
@@ -204,7 +206,7 @@ export const AdminDashboardPage: React.FC = () => {
   const handleAssign = async () => {
     if (!selectedIssue || !assignTarget) return;
     try {
-      await postWithAuth(`/api/admin/assign`, {
+      await postWithAuth(`${API_URL}/admin/assign`, {
         issue_id: selectedIssue.issue_id,
         assign_type: assignType,
         assign_to: assignTarget,
@@ -221,7 +223,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   const handleChangeStatus = async (issueId: string, status: IssueStatus) => {
     try {
-      await postWithAuth(`/api/admin/issues/${issueId}/status`, { status });
+      await postWithAuth(`${API_URL}/admin/issues/${issueId}/status`, { status });
       toast.success(`Status changed to ${STATUS_LABELS[status]}`);
       loadQueue();
     } catch (err: any) {
@@ -231,7 +233,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
-      await postWithAuth(`/api/admin/users/${userId}/role`, { role: newRole });
+      await postWithAuth(`${API_URL}/admin/users/${userId}/role`, { role: newRole });
       toast.success('Role updated');
       loadUsers();
     } catch (err: any) {
@@ -341,15 +343,15 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="flex gap-2 mb-6 overflow-x-auto pb-2">
+      <motion.div variants={itemVariants} className="flex gap-3 mb-6 overflow-x-auto pb-2 snap-x scrollbar-hide">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-300 snap-start ${
               activeTab === tab.key
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-100'
+                ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 scale-105'
+                : 'glass-card text-slate-500 hover:text-slate-800 hover:bg-white/40'
             }`}
           >
             {tab.icon}
@@ -621,7 +623,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-light to-primary-dark flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                            {u.name.charAt(0).toUpperCase()}
+                            {(u.name || 'User').charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-neu-800 truncate">{u.name}</p>

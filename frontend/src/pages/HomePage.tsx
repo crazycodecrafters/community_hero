@@ -96,7 +96,7 @@ export const HomePage: React.FC = () => {
         </div>
         <div className="relative">
           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-light to-primary-dark flex items-center justify-center text-white font-bold text-lg shadow-lg">
-            {user.name.charAt(0).toUpperCase()}
+            {(user.name || 'User').charAt(0).toUpperCase()}
           </div>
           <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-emerald-500 border-2 border-neu-50 rounded-full flex items-center justify-center">
             <span className="text-white text-[8px] font-bold">{'\u2713'}</span>

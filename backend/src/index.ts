@@ -30,7 +30,20 @@ app.use(helmet());
 app.use(compression());
 app.use(globalLimiter);
 app.use(cors({
-  origin: env.corsOrigins.split(',').map(s => s.trim()),
+  origin: function (origin, callback) {
+    // Allow all origins that end with vercel.app, or localhost
+    if (!origin || origin.includes('localhost') || origin.endsWith('vercel.app')) {
+      callback(null, true);
+    } else {
+      // Fallback to strict origins
+      const allowedOrigins = env.corsOrigins.split(',').map(s => s.trim());
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));

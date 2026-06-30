@@ -141,7 +141,7 @@ export const IssueDetailPage = () => {
       const token = await getIdToken();
       let res;
       if (user.role === 'officer' || user.role === 'admin') {
-        res = await fetch(`http://localhost:8000/api/officer/issues/${id}/status`, {
+        res = await fetch(`${API_URL}/officer/issues/${id}/status`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ new_status: newStatus, proof_media_urls: proofMediaUrl ? [proofMediaUrl] : [] })
@@ -166,7 +166,7 @@ export const IssueDetailPage = () => {
     setAssigning(true);
     try {
       const token = await getIdToken();
-      const res = await fetch(`http://localhost:8000/api/officer/issues/${id}/assign`, {
+      const res = await fetch(`${API_URL}/officer/issues/${id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ assignee_id: user.user_id })
@@ -187,7 +187,7 @@ export const IssueDetailPage = () => {
     setMerging(true);
     try {
       const token = await getIdToken();
-      const res = await fetch(`http://localhost:8000/api/admin/issues/${id}/merge`, {
+      const res = await fetch(`${API_URL}/admin/issues/${id}/merge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ target_issue_id: targetIssueId, reason: mergeReason })

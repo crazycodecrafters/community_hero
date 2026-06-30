@@ -4,7 +4,7 @@ import {
 import { UserProfile, UserRole } from '../types';
 
 const USERS_REF = 'users';
-const API_URL = '/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export async function getIdToken(): Promise<string> {
   await auth.authStateReady();

@@ -43,110 +43,126 @@
 }
 
 @layer components {
+  /* Premium Soft Neumorphism */
   .neu-card {
-    background: #f0f2f5;
+    background: linear-gradient(145deg, #ffffff, #f0f2f5);
     border-radius: 16px;
-    box-shadow: 8px 8px 16px #c9cdd6, -8px -8px 16px #ffffff;
-    transition: all 0.2s ease;
+    box-shadow: 6px 6px 14px #d1d5db, -6px -6px 14px #ffffff;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(255, 255, 255, 0.8);
   }
 
   .neu-card:hover {
-    box-shadow: 6px 6px 12px #c9cdd6, -6px -6px 12px #ffffff;
-  }
-
-  .neu-card:active {
-    box-shadow: inset 4px 4px 8px #c9cdd6, inset -4px -4px 8px #ffffff;
+    box-shadow: 8px 8px 18px #cbd5e1, -8px -8px 18px #ffffff;
+    transform: translateY(-2px);
   }
 
   .neu-card-sm {
-    background: #f0f2f5;
+    background: linear-gradient(145deg, #ffffff, #f0f2f5);
     border-radius: 12px;
-    box-shadow: 4px 4px 8px #c9cdd6, -4px -4px 8px #ffffff;
+    box-shadow: 4px 4px 10px #d1d5db, -4px -4px 10px #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.6);
   }
 
+  /* Sleek Modern Buttons */
   .neu-button {
-    background: #f0f2f5;
+    background: linear-gradient(145deg, #ffffff, #f3f4f6);
     border-radius: 12px;
-    box-shadow: 5px 5px 10px #c9cdd6, -5px -5px 10px #ffffff;
-    transition: all 0.15s ease;
+    box-shadow: 4px 4px 8px #d1d5db, -4px -4px 8px #ffffff;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
-    border: none;
-    font-family: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.8);
     font-weight: 600;
-    padding: 12px 24px;
+    padding: 10px 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #4b5563;
   }
 
   .neu-button:hover {
-    box-shadow: 3px 3px 6px #c9cdd6, -3px -3px 6px #ffffff;
+    box-shadow: 5px 5px 12px #d1d5db, -5px -5px 12px #ffffff;
+    color: #1f2937;
+    transform: translateY(-1px);
   }
 
   .neu-button:active {
-    box-shadow: inset 3px 3px 6px #c9cdd6, inset -3px -3px 6px #ffffff;
+    box-shadow: inset 3px 3px 6px #d1d5db, inset -3px -3px 6px #ffffff;
+    transform: translateY(1px);
   }
 
   .neu-button-primary {
-    background: linear-gradient(145deg, #5a4bd1, #6c5ce7);
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
     color: white;
-    box-shadow: 5px 5px 10px rgba(90, 75, 209, 0.3), -5px -5px 10px rgba(255, 255, 255, 0.5);
+    border: none;
+    box-shadow: 0 4px 14px 0 rgba(99, 102, 241, 0.39);
   }
 
   .neu-button-primary:hover {
-    box-shadow: 3px 3px 6px rgba(90, 75, 209, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5);
+    background: linear-gradient(135deg, #4338ca, #6d28d9);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.23);
+    color: white;
   }
 
   .neu-button-primary:active {
-    box-shadow: inset 3px 3px 6px rgba(72, 52, 181, 0.4), inset -3px -3px 6px rgba(90, 75, 209, 0.2);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
   }
 
+  /* Crisp Inputs */
   .neu-input {
-    background: #f0f2f5;
+    background: #f8fafc;
     border-radius: 12px;
-    box-shadow: inset 3px 3px 6px #c9cdd6, inset -3px -3px 6px #ffffff;
-    border: none;
+    box-shadow: inset 2px 2px 5px #e2e8f0, inset -3px -3px 7px #ffffff;
+    border: 1px solid transparent;
     outline: none;
-    padding: 14px 18px;
+    padding: 12px 16px;
     font-family: inherit;
     font-size: 15px;
     width: 100%;
     transition: all 0.2s;
+    color: #334155;
   }
 
   .neu-input:focus {
-    box-shadow: inset 3px 3px 6px #b8bcc8, inset -3px -3px 6px #ffffff;
-  }
-
-  .neu-toggle {
-    background: #f0f2f5;
-    border-radius: 50%;
-    box-shadow: 3px 3px 6px #c9cdd6, -3px -3px 6px #ffffff;
-    transition: all 0.15s;
-  }
-
-  .neu-toggle:active {
-    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
+    box-shadow: inset 2px 2px 4px #cbd5e1, inset -2px -2px 4px #ffffff;
+    border: 1px solid #c7d2fe;
+    background: #ffffff;
   }
 
   .neu-badge {
-    background: #f0f2f5;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(8px);
     border-radius: 20px;
-    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
     padding: 4px 12px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.4);
   }
 
   .neu-divider {
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #c9cdd6, transparent);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(203, 213, 225, 0.6), transparent);
     margin: 16px 0;
   }
 
+  /* True Glassmorphism */
   .glass-card {
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  }
+  
+  .glass-nav {
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-top: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.03);
   }
 
   .status-dot {
@@ -154,31 +170,31 @@
     height: 10px;
     border-radius: 50%;
     display: inline-block;
-    box-shadow: inset 1px 1px 2px rgba(0,0,0,0.1);
+    box-shadow: 0 0 8px currentColor;
   }
 
   .animate-on-mount {
-    animation: slideUp 0.3s ease-out;
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .neu-progress {
-    background: #f0f2f5;
+    background: #e2e8f0;
     border-radius: 10px;
-    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
-    height: 10px;
+    box-shadow: inset 1px 1px 3px rgba(0,0,0,0.1);
+    height: 8px;
     overflow: hidden;
   }
 
   .neu-progress-fill {
     height: 100%;
     border-radius: 10px;
-    background: linear-gradient(90deg, #6c5ce7, #a29bfe);
-    transition: width 0.5s ease;
-    box-shadow: 0 2px 4px rgba(108, 92, 231, 0.3);
+    background: linear-gradient(90deg, #4f46e5, #a855f7);
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
   }
 
   .xp-float {
-    animation: xpPop 0.5s ease-out forwards;
+    animation: xpPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
     position: fixed;
     pointer-events: none;
     z-index: 9999;
@@ -188,10 +204,11 @@
 .leaflet-container {
   border-radius: 16px;
   z-index: 1;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
 }
 
 .cluster-marker {
-  background: #6c5ce7;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -199,6 +216,6 @@
   justify-content: center;
   font-weight: 700;
   font-size: 14px;
-  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
-  border: 3px solid white;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  border: 2px solid white;
 }

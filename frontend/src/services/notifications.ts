@@ -1,6 +1,8 @@
 import { auth } from '../firebase';
+import { Notification } from '../types';
+import { getIdToken } from './auth';
 
-const API_URL = '/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;
