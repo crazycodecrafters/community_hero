@@ -4,7 +4,13 @@ import {
 import { UserProfile, UserRole } from '../types';
 
 const USERS_REF = 'users';
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const getApiUrl = () => {
+  let url = import.meta.env.VITE_API_URL || '/api';
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.startsWith('http') && !url.endsWith('/api')) url += '/api';
+  return url;
+};
+const API_URL = getApiUrl();
 
 export async function getIdToken(): Promise<string> {
   await auth.authStateReady();

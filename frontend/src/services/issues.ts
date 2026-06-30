@@ -1,7 +1,13 @@
 import { auth } from '../firebase';
 import { Issue, AIResult } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const getApiUrl = () => {
+  let url = import.meta.env.VITE_API_URL || '/api';
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.startsWith('http') && !url.endsWith('/api')) url += '/api';
+  return url;
+};
+const API_URL = getApiUrl();
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;

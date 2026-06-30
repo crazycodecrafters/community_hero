@@ -10,7 +10,13 @@ import { UserProfile, Issue, LeaderboardEntry, Badge } from '../types';
 import { NeuCard } from '../components/ui/NeuCard';
 import { NeuButton } from '../components/ui/NeuButton';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const getApiUrl = () => {
+  let url = import.meta.env.VITE_API_URL || '/api';
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.startsWith('http') && !url.endsWith('/api')) url += '/api';
+  return url;
+};
+const API_URL = getApiUrl();
 const XP_PER_LEVEL = 500;
 
 const containerVariants = {

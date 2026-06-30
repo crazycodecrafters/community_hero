@@ -8,7 +8,13 @@ import { NeuCard, NeuButton, SeverityBadge, StatusBadge } from '../components/ui
 import { formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const getApiUrl = () => {
+  let url = import.meta.env.VITE_API_URL || '/api';
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.startsWith('http') && !url.endsWith('/api')) url += '/api';
+  return url;
+};
+const API_URL = getApiUrl();
 
 async function fetchOfficerQueue(): Promise<Issue[]> {
   const token = await getIdToken();

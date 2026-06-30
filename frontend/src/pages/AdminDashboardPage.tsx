@@ -18,7 +18,13 @@ import {
   ShieldCheck, Warning
 } from 'phosphor-react';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const getApiUrl = () => {
+  let url = import.meta.env.VITE_API_URL || '/api';
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.startsWith('http') && !url.endsWith('/api')) url += '/api';
+  return url;
+};
+const API_URL = getApiUrl();
 
 const TABS: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'queue', label: 'Queue', icon: <Queue size={18} weight="fill" /> },
