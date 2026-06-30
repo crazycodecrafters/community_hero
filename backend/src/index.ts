@@ -69,21 +69,23 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // Start
-app.listen(env.port, async () => {
-  console.log(`\n🏙️  Community Hero Backend`);
-  console.log(`📡 Running on http://0.0.0.0:${env.port}`);
-  console.log(`🤖 AI Model: ${env.nvidiaModel}`);
-  console.log(`🌍 Environment: ${env.environment}\n`);
+if (!process.env.VERCEL) {
+  app.listen(env.port, async () => {
+    console.log(`\n🏙️  Community Hero Backend`);
+    console.log(`📡 Running on http://0.0.0.0:${env.port}`);
+    console.log(`🤖 AI Model: ${env.nvidiaModel}`);
+    console.log(`🌍 Environment: ${env.environment}\n`);
 
-  try {
-    await db.query('SELECT 1');
-    console.log('✅ Database connected');
-  } catch (err) {
-    console.error('❌ Database connection failed:', err);
-  }
+    try {
+      await db.query('SELECT 1');
+      console.log('✅ Database connected');
+    } catch (err) {
+      console.error('❌ Database connection failed:', err);
+    }
 
-  // Start SLA monitoring
-  startSLAMonitoring(60000);
-});
+    // Start SLA monitoring
+    startSLAMonitoring(60000);
+  });
+}
 
 export default app;
