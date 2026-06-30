@@ -4,16 +4,15 @@
 
 # 🦸‍♂️ Community Hero
 
-**A Next-Generation, AI-Driven Civic Infrastructure Platform.**
+**A Next-Generation Civic Infrastructure Platform.**
 
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=black&style=for-the-badge)](https://reactjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5.4-646CFF?logo=vite&logoColor=white&style=for-the-badge)](https://vitejs.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-339933?logo=node.js&logoColor=white&style=for-the-badge)](https://nodejs.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostGIS-16-4169E1?logo=postgresql&logoColor=white&style=for-the-badge)](https://postgis.net/)
-[![NVIDIA NIM](https://img.shields.io/badge/AI_Engine-NVIDIA_NIM-76B900?logo=nvidia&logoColor=white&style=for-the-badge)](https://nvidia.com/)
+[![Firebase](https://img.shields.io/badge/Firebase-V10-FFCA28?logo=firebase&logoColor=black&style=for-the-badge)](https://firebase.google.com/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?logo=tailwind-css&logoColor=white&style=for-the-badge)](https://tailwindcss.com/)
 
-[**Working Process**](#-deep-dive-how-it-works) • [**Architecture**](#-system-architecture) • [**Database Schema**](#-database-entity-relationships) • [**Getting Started**](#-getting-started)
+[**Working Process**](#-how-it-works-in-the-real-world) • [**User Profiles**](#-user-profiles--roles) • [**Architecture**](#-system-architecture) • [**Setup Guide**](#-getting-started-setup-guide)
 
 </div>
 
@@ -21,179 +20,121 @@
 
 ## 📖 Executive Summary
 
-**Community Hero** replaces archaic, manual municipal ticketing systems with a highly automated, AI-first Progressive Web Application (PWA). 
+**Community Hero** replaces archaic, manual municipal ticketing systems with a highly automated, mobile-first Progressive Web Application (PWA). It empowers citizens to report civic issues (like potholes, downed power lines, or vandalism) instantly, while providing municipal workers and administrators with powerful, glassmorphism-styled dashboards to track, assign, and resolve these issues efficiently.
 
-When a citizen reports a civic issue (e.g., a downed power line), the platform utilizes **NVIDIA LLMs** to visually and textually analyze the report in milliseconds. It determines the severity, tags the geographic coordinates, checks for nearby duplicate reports using **PostGIS**, and automatically routes the ticket to the correct municipal department queue.
+We've adopted a 100% Serverless architecture utilizing **Firebase** for Authentication and Database storage, making the platform infinitely scalable and incredibly fast.
 
 ---
 
-## 🧠 Deep Dive: How It Works (The Working Process)
+## 🌍 How It Works in the Real World
 
-Community Hero isn't just a CRUD app; it features complex, asynchronous pipelines designed for scale.
+The lifecycle of a civic issue in Community Hero follows a streamlined, digital-first approach:
 
-### 1. The AI Triage Engine (NVIDIA NIM)
-Instead of forcing citizens to fill out confusing drop-down forms, they simply take a photo and write a natural language description.
-* **The Process**: The Node.js backend intercepts the HTTP request and forwards the Base64 image and text to our dedicated Python Microservice (`ai-service`).
-* **The AI**: The Python service queries the `qwen3.5-122b-a10b` vision-language model via the **NVIDIA NIM API**. We utilize strict system prompting to force the LLM to return a deterministic JSON object containing: `issue_type`, `severity`, `department`, `confidence_score`, and `public_safety_risk`.
-* **Guardrails**: Before processing, the text is run through an AI Guardrail to instantly reject hate speech, spam, or prompt injection attacks.
+1. **Report (The Citizen):** A citizen notices a broken streetlight. They open the Community Hero web app on their phone, log in with Google, and submit a report with the location and description. 
+2. **Gamification (The Reward):** The citizen instantly receives XP (Experience Points) for their civic duty, contributing to their trust score and unlocking badges on their profile.
+3. **Triage (The Admin):** A city administrator sees the new ticket on their Admin Dashboard queue. They review the severity and assign the ticket to an available Public Works Officer.
+4. **Action (The Officer):** The assigned Officer receives the ticket on their mobile Dashboard. They drive to the location, fix the streetlight, and mark the ticket as `resolved` (optionally uploading proof).
+5. **Resolution:** The citizen is notified that their reported issue has been fixed, closing the loop and building community trust.
 
-### 2. Geospatial Clustering (PostGIS)
-Municipalities waste thousands of hours responding to duplicate reports of the same pothole.
-* **The Process**: When an issue is approved, the backend queries the PostgreSQL database using the PostGIS `ST_DWithin` function. 
-* **The Logic**: It scans for any existing active issues of the same `issue_type` within a 50-meter radius of the incoming geographic coordinates. If found, the incoming report is flagged as a "Duplicate Candidate" to prevent redundant officer dispatch.
+---
 
-### 3. Dual-State Authorization Flow
-Authentication is notoriously difficult in Dockerized microservices. We solved this with a hybrid approach.
-* **The Process**: The Frontend uses **Firebase Auth** (Google OAuth/Email) to generate secure JWTs.
-* **The Validation**: The Express backend verifies the JWT using the Firebase Admin SDK. However, to avoid Google Cloud metadata timeouts and ensure split-second routing, **User Roles (Citizen, Officer, Admin)** are cached and strictly enforced by the PostgreSQL database.
+## 👥 User Profiles & Roles
 
-### 4. Background SLA Monitoring
-Critical issues (like water main breaks) have strict Service Level Agreements (SLAs).
-* **The Process**: A custom Node.js asynchronous worker runs on an interval (`setInterval`). It scans the database for issues in the `assigned` state that have exceeded their `recommended_sla_hours`.
-* **The Action**: If an SLA is breached, the worker automatically escalates the issue severity and logs an infraction on the responsible Officer's record.
+Community Hero features a strict Role-Based Access Control (RBAC) system. When a user first signs up, they are automatically assigned the **Citizen** role. Only an **Admin** can promote a user to an Officer or Admin role.
+
+### 1. 🧍 Citizen
+* **Real-World Persona:** Everyday residents of the municipality.
+* **Capabilities:** 
+  * Can submit new civic issues.
+  * Can view the status of their own reported issues.
+  * Earns XP, levels up, and collects gamification badges for community participation.
+
+### 2. 👷 Officer
+* **Real-World Persona:** Municipal workers, public works employees, sanitation crews, etc.
+* **Capabilities:**
+  * Has a dedicated "Officer Dashboard" showing their assigned queue.
+  * Can view the exact location and details of assigned issues.
+  * Can update the status of an issue (e.g., from `assigned` to `in_progress` to `resolved`).
+
+### 3. 👑 Admin
+* **Real-World Persona:** City managers, dispatchers, and department heads.
+* **Capabilities:**
+  * Has access to the global "Admin Dashboard".
+  * Can view ALL issues reported across the city.
+  * Can assign unassigned tickets to specific Officers or teams.
+  * Can manage users (promote a Citizen to an Officer/Admin, or demote them).
+  * Can view high-level analytics (total open issues, average resolution times).
 
 ---
 
 ## 🏗️ System Architecture
 
-Our microservice architecture separates the heavy AI compute from the high-throughput transactional database.
+Our platform utilizes a highly scalable, fully serverless stack.
 
-```mermaid
-graph TD
-    %% Frontend Layer
-    subgraph "Client Layer (Vite + React PWA)"
-        A[📱 Citizen App]
-        B[👮 Officer Console]
-        C[👑 Admin Dashboard]
-    end
-
-    %% Network / API Gateway
-    subgraph "Backend API (Node.js + Express)"
-        D(🚦 Rate Limiter & Helmet)
-        E[🔒 Auth Middleware]
-        F[⚡ Core Business Logic]
-        D --> E --> F
-    end
-
-    %% AI Microservice Layer
-    subgraph "AI Inference (Python + FastAPI)"
-        G[🛡️ Guardrails Filter]
-        H[🧠 Vision-Language Triage]
-        I((NVIDIA NIM API))
-    end
-
-    %% Data Layer
-    subgraph "Persistence Layer"
-        J[(Redis Cache)]
-        K[(PostgreSQL + PostGIS)]
-    end
-
-    %% Connections
-    A & B & C -- REST / JSON --> D
-    F <-->|Validate Roles & Read/Write| K
-    F -.->|Cache Sessions| J
-    F -- "Base64 + Text" --> G
-    G --> H --> I
-    I -->|Strict JSON Output| H
-    H --> F
-```
+* **Frontend:** React + Vite + Tailwind CSS (with custom Glassmorphism and Neumorphism UI components).
+* **Backend:** Node.js + Express (Deployed as Vercel Serverless Functions).
+* **Database:** Firebase Firestore (NoSQL Document Database).
+* **Authentication:** Firebase Authentication (Email/Password & Google OAuth).
 
 ---
 
-## 🗄️ Database Entity Relationships
+## 🚀 Getting Started (Setup Guide)
 
-Our relational database is normalized to support high-velocity geographic queries and strict audit logs.
+Follow these instructions to run the entire stack locally.
 
-```mermaid
-erDiagram
-    USERS ||--o{ ISSUES : reports
-    USERS ||--o{ ISSUE_HISTORY : changes
-    USERS {
-        uuid user_id PK
-        string role "citizen | officer | admin"
-        int xp_points
-        int trust_score
-    }
-    ISSUES ||--o{ ISSUE_MEDIA : contains
-    ISSUES ||--o{ ISSUE_HISTORY : tracks
-    ISSUES {
-        uuid issue_id PK
-        uuid reporter_id FK
-        string status "reported | assigned | resolved"
-        string severity
-        string department
-        geography location "PostGIS Point"
-        float ai_confidence
-    }
-    ISSUE_MEDIA {
-        uuid media_id PK
-        uuid issue_id FK
-        string media_url
-        string upload_type "citizen_report | officer_resolution"
-    }
-```
+### 1. Prerequisites
+* **Node.js** (v18 or higher)
+* **Git**
+* A **Firebase Project** (with Firestore and Authentication enabled)
 
----
+### 2. Configure Firebase Credentials
+You must set up your environment variables for both the frontend and backend to talk to Firebase.
 
-## 🚀 Getting Started (Local Development)
+**Create `.env` in the root directory:**
+\`\`\`env
+# Frontend Config
+VITE_FIREBASE_API_KEY=your_web_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+VITE_API_URL=http://localhost:8000/api
 
-### 1. Unified Configuration
-We use a single, unified `.env` file at the root of the project to ensure the Frontend, Backend, and Python AI Service are always perfectly synchronized.
-
-Create `.env` in the root directory:
-```env
+# Backend Config
 PORT=8000
-NVIDIA_API_KEY=your_nvidia_api_key_here
-NVIDIA_MODEL=qwen/qwen3.5-122b-a10b
-NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 CORS_ORIGINS=http://localhost:5173
-ENVIRONMENT=development
-```
+FIREBASE_SERVICE_ACCOUNT_BASE64=your_base64_encoded_service_account_json
+\`\`\`
+*(Note: To get your `FIREBASE_SERVICE_ACCOUNT_BASE64`, download your Firebase Admin SDK service account JSON file, convert the entire file content to a base64 string, and paste it here).*
 
-### 2. Boot Local Infrastructure
-Use Docker Compose to provision the PostgreSQL (with PostGIS extensions) database and the Redis cache.
-```bash
-docker-compose up -d postgres redis
-```
-
-### 3. Start the Microservices
-Open three separate terminal windows to run the stack concurrently:
-
-**Terminal 1 (Node.js Backend):**
-```bash
+### 3. Start the Backend
+Open a terminal and start the Express server:
+\`\`\`bash
 cd backend
 npm install
 npm run dev
-```
+\`\`\`
+*The backend will start on `http://localhost:8000`.*
 
-**Terminal 2 (Python AI Service):**
-```bash
-cd ai-service
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
-```
-
-**Terminal 3 (React Frontend PWA):**
-```bash
+### 4. Start the Frontend
+Open a second terminal and start the Vite React app:
+\`\`\`bash
 cd frontend
 npm install
 npm run dev
-```
-
-Navigate to `http://localhost:5173` to explore the platform!
+\`\`\`
+*The frontend will start on `http://localhost:5173`.*
 
 ---
 
-## 🌐 Production Deployment Guide
+## 🌐 Deployment (Vercel)
 
-To deploy Community Hero to the internet, follow this highly-available architecture strategy:
+Both the Frontend and Backend are optimized for seamless Vercel deployment.
 
-1. **Database Tier**: Provision a managed PostgreSQL instance with the PostGIS extension enabled (e.g., **Supabase**, **Neon**, or **Railway**). Execute `db/init.sql` to build the schema.
-2. **AI & API Services (Render or Railway)**: Deploy the `backend` and `ai-service` directories as separate Dockerized web services. Ensure your unified `.env` variables are applied to both.
-3. **Frontend Tier (Vercel)**: Connect your GitHub repository to Vercel, targeting the `frontend` folder. Vite will automatically build the PWA.
-   - *Crucial*: Ensure `VITE_API_URL` and `VITE_AI_SERVICE_URL` point to your newly deployed backend services.
-   - *Crucial*: To support React Router, configure Vercel to rewrite all routes to `index.html`.
-4. **Firebase Configuration**: Add your new Vercel domain to your Firebase project's "Authorized Domains" list to ensure OAuth Google Sign-In functions securely in production.
+1. **Deploy Backend:** Create a Vercel project pointing to the `backend/` directory. Add `FIREBASE_SERVICE_ACCOUNT_BASE64` to the Vercel Environment Variables.
+2. **Deploy Frontend:** Create a separate Vercel project pointing to the `frontend/` directory. Add your `VITE_FIREBASE_*` keys to the Environment Variables. 
+3. **Link Them:** In the Frontend Vercel project, set `VITE_API_URL` to your newly deployed backend URL (e.g., `https://my-backend.vercel.app/api`).
 
 ---
 <div align="center">
