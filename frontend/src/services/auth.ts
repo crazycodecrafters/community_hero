@@ -45,17 +45,24 @@ export async function loginWithEmail(email: string, password: string):Promise<Us
 }
 
 export async function registerWithEmail(email: string, password: string, name: string, role: UserRole = 'citizen'):Promise<UserProfile> {
-  const result = await createUserWithEmailAndPassword(auth, email, password);
-  const idToken = await result.user.getIdToken();
-  
-  const response = await fetch(`${API_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken, name, email, role }),
-  });
-  const data = await response.json();
-  if (!data.success) throw new Error(data.error || 'Registration failed');
-  return data.data;
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    const idToken = await result.user.getIdToken();
+    
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, name, email, role }),
+    });
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error || 'Registration failed');
+    return data.data;
+  } catch (err: any) {
+    if (err.code === 'auth/email-already-in-use') {
+      return loginWithEmail(email, password);
+    }
+    throw err;
+  }
 }
 
 export async function loginWithIdToken(idToken: string): Promise<UserProfile> {
