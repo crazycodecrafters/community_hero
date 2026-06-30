@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../config/db';
+import { firestore } from '../config/firebase';
 import { AuthRequest, verifyToken } from '../middleware/auth';
 
 const router = Router();
@@ -8,27 +8,27 @@ function apiResponse(success: boolean, data: any = null, error: string | null = 
   return { success, data, error };
 }
 
+const BADGES = [
+  { badge_id: 'first_report', name: 'First Reporter', description: 'Reported first issue', xp_reward: 50, icon_name: 'award' },
+  { badge_id: 'civic_hero', name: 'Civic Hero', description: 'Resolved 10 issues', xp_reward: 200, icon_name: 'star' },
+  { badge_id: 'verifier', name: 'Truth Seeker', description: 'Verified 5 issues', xp_reward: 100, icon_name: 'check-circle' }
+];
+
 // GET /api/gamification/profile - user's XP, badges, streaks
 router.get('/profile', verifyToken, async (req: AuthRequest, res: Response) => {
   try {
-    const userResult = await db.query(
-      `SELECT xp_points, streak_days, trust_score, badge_ids, false_report_count
-       FROM users WHERE user_id = $1`,
-      [req.user!.uid]
-    );
-    if (userResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'User not found'));
-    const user = userResult.rows[0];
-
-    const badgesResult = await db.query(`SELECT * FROM badges ORDER BY xp_reward DESC`);
-    const allBadges = badgesResult.rows;
+    const userDoc = await firestore.collection('users').doc(req.user!.uid).get();
+    if (!userDoc.exists) return res.status(404).json(apiResponse(false, null, 'User not found'));
+    
+    const user = userDoc.data() as any;
     const userBadgeIds: string[] = user.badge_ids || [];
-    const userBadges = allBadges.filter(b => userBadgeIds.includes(b.badge_id) || userBadgeIds.includes(b.icon_name));
+    const userBadges = BADGES.filter(b => userBadgeIds.includes(b.badge_id));
 
-    // Leaderboard rank
-    const rankResult = await db.query(
-      `SELECT COUNT(*) + 1 as rank FROM users WHERE xp_points > $1`,
-      [user.xp_points]
-    );
+    // Leaderboard rank approximation
+    const snapshot = await firestore.collection('users')
+      .where('xp_points', '>', user.xp_points || 0)
+      .get();
+    const rank = snapshot.size + 1;
 
     res.json(apiResponse(true, {
       xp_points: user.xp_points || 0,
@@ -37,7 +37,7 @@ router.get('/profile', verifyToken, async (req: AuthRequest, res: Response) => {
       false_report_count: user.false_report_count || 0,
       badges: userBadges,
       badge_count: userBadges.length,
-      rank: parseInt(rankResult.rows[0].rank),
+      rank: rank,
     }));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
@@ -47,20 +47,27 @@ router.get('/profile', verifyToken, async (req: AuthRequest, res: Response) => {
 // GET /api/gamification/leaderboard - top contributors
 router.get('/leaderboard', async (req: Request, res: Response) => {
   try {
-    const { ward_id, limit = '20' } = req.query;
-    const conditions: string[] = ['xp_points > 0'];
-    const values: any[] = [];
-    let idx = 1;
-    if (ward_id) { conditions.push(`ward_id = $${idx++}`); values.push(ward_id); }
-    values.push(parseInt(limit as string));
+    const { limit = '20' } = req.query;
+    
+    // Firestore composite query
+    const snapshot = await firestore.collection('users')
+      .orderBy('xp_points', 'desc')
+      .limit(parseInt(limit as string))
+      .get();
 
-    const result = await db.query(
-      `SELECT user_id, name, xp_points, streak_days, trust_score, badge_ids, avatar_url, role, ward_id
-       FROM users WHERE ${conditions.join(' AND ')}
-       ORDER BY xp_points DESC LIMIT $${idx}`,
-      values
-    );
-    res.json(apiResponse(true, result.rows));
+    const users = snapshot.docs.map(doc => ({
+      user_id: doc.id,
+      name: doc.data().name,
+      xp_points: doc.data().xp_points || 0,
+      streak_days: doc.data().streak_days || 0,
+      trust_score: doc.data().trust_score || 1.0,
+      badge_ids: doc.data().badge_ids || [],
+      avatar_url: doc.data().avatar_url,
+      role: doc.data().role,
+      ward_id: doc.data().ward_id
+    }));
+
+    res.json(apiResponse(true, users));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }
@@ -69,8 +76,7 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
 // GET /api/gamification/badges - all available badges
 router.get('/badges', async (_req: Request, res: Response) => {
   try {
-    const result = await db.query(`SELECT * FROM badges ORDER BY xp_reward DESC`);
-    res.json(apiResponse(true, result.rows));
+    res.json(apiResponse(true, BADGES));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }
@@ -79,17 +85,8 @@ router.get('/badges', async (_req: Request, res: Response) => {
 // GET /api/gamification/challenges - active weekly challenges
 router.get('/challenges', verifyToken, async (req: AuthRequest, res: Response) => {
   try {
-    const challengesResult = await db.query(
-      `SELECT wc.*,
-        COALESCE(ucp.current_count, 0) as user_progress,
-        COALESCE(ucp.is_completed, false) as user_completed
-       FROM weekly_challenges wc
-       LEFT JOIN user_challenge_progress ucp ON wc.challenge_id = ucp.challenge_id AND ucp.user_id = $1
-       WHERE wc.starts_at <= NOW() AND wc.ends_at >= NOW()
-       ORDER BY wc.xp_multiplier DESC`,
-      [req.user!.uid]
-    );
-    res.json(apiResponse(true, challengesResult.rows));
+    // Return empty challenges for NoSQL MVP
+    res.json(apiResponse(true, []));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }
@@ -98,19 +95,34 @@ router.get('/challenges', verifyToken, async (req: AuthRequest, res: Response) =
 // GET /api/gamification/impact - civic impact metrics
 router.get('/impact', async (_req: Request, res: Response) => {
   try {
-    const result = await db.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE status IN ('resolved','closed')) as total_resolved,
-        COUNT(*) FILTER (WHERE issue_type = 'pothole' AND status IN ('resolved','closed')) as potholes_fixed,
-        COUNT(*) FILTER (WHERE issue_type = 'water_leakage' AND status IN ('resolved','closed')) as leaks_fixed,
-        COUNT(*) FILTER (WHERE issue_type = 'garbage_overflow' AND status IN ('resolved','closed')) as garbage_cleared,
-        COUNT(*) FILTER (WHERE issue_type = 'broken_streetlight' AND status IN ('resolved','closed')) as lights_fixed,
-        COUNT(DISTINCT reporter_id) FILTER (WHERE reporter_id IS NOT NULL) as active_citizens,
-        COUNT(DISTINCT v.citizen_id) as active_verifiers
-      FROM issues
-      LEFT JOIN verifications v ON issues.issue_id = v.issue_id
-    `);
-    res.json(apiResponse(true, result.rows[0]));
+    const snapshot = await firestore.collection('issues')
+      .where('status', 'in', ['resolved', 'closed'])
+      .get();
+
+    let total_resolved = 0;
+    let potholes_fixed = 0;
+    let leaks_fixed = 0;
+    let garbage_cleared = 0;
+    let lights_fixed = 0;
+
+    snapshot.forEach(doc => {
+      total_resolved++;
+      const type = doc.data().issue_type;
+      if (type === 'pothole') potholes_fixed++;
+      else if (type === 'water_leakage') leaks_fixed++;
+      else if (type === 'garbage_overflow') garbage_cleared++;
+      else if (type === 'broken_streetlight') lights_fixed++;
+    });
+
+    res.json(apiResponse(true, {
+      total_resolved,
+      potholes_fixed,
+      leaks_fixed,
+      garbage_cleared,
+      lights_fixed,
+      active_citizens: 0, // Simplified for MVP
+      active_verifiers: 0
+    }));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }

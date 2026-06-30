@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { firebaseAuth } from '../config/firebase';
-import { db } from '../config/db';
-
+import { firestore } from '../config/firebase';
 export interface AuthRequest extends Request {
   user?: {
     uid: string;
@@ -24,21 +23,19 @@ export async function verifyToken(req: AuthRequest, res: Response, next: NextFun
   try {
     const decoded = await firebaseAuth.verifyIdToken(token);
     
-    // Map Firebase UID to internal Postgres UUID
-    let internalUid = decoded.uid;
+    // Fetch role from Firestore
     let internalRole = decoded.role as string || 'citizen';
     try {
-      const userRes = await db.query('SELECT user_id, role FROM users WHERE google_id = $1', [decoded.uid]);
-      if (userRes.rows.length > 0) {
-        internalUid = userRes.rows[0].user_id;
-        internalRole = userRes.rows[0].role;
+      const userDoc = await firestore.collection('users').doc(decoded.uid).get();
+      if (userDoc.exists) {
+        internalRole = userDoc.data()?.role || 'citizen';
       }
     } catch (e) {
-      console.error('Failed to map Firebase UID to Postgres UUID', e);
+      console.error('Failed to fetch user from Firestore', e);
     }
 
     req.user = {
-      uid: internalUid,
+      uid: decoded.uid,
       firebaseUid: decoded.uid,
       email: decoded.email,
       phone: decoded.phone_number,

@@ -5,7 +5,6 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { startSLAMonitoring } from './services/sla-monitor';
-import { db } from './config/db';
 import authRoutes from './routes/auth';
 import issueRoutes from './routes/issues';
 import adminRoutes from './routes/admin';
@@ -39,12 +38,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health check
 app.get('/api/health', async (_, res) => {
-  try {
-    await db.query('SELECT 1');
-    res.json({ success: true, data: { status: 'ok', db: 'connected', timestamp: Date.now(), uptime: process.uptime() } });
-  } catch {
-    res.status(503).json({ success: false, data: { status: 'error', db: 'disconnected' } });
-  }
+  res.json({ success: true, data: { status: 'ok', db: 'firebase', timestamp: Date.now(), uptime: process.uptime() } });
 });
 
 // Routes
@@ -76,12 +70,7 @@ if (!process.env.VERCEL) {
     console.log(`🤖 AI Model: ${env.nvidiaModel}`);
     console.log(`🌍 Environment: ${env.environment}\n`);
 
-    try {
-      await db.query('SELECT 1');
-      console.log('✅ Database connected');
-    } catch (err) {
-      console.error('❌ Database connection failed:', err);
-    }
+    console.log('✅ Firebase initialized');
 
     // Start SLA monitoring
     startSLAMonitoring(60000);

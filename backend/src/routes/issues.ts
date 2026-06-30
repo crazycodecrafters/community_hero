@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../config/db';
+import { firebaseAdmin, firestore } from '../config/firebase';
 import { AuthRequest, verifyToken, verifyOfficerOrAdmin } from '../middleware/auth';
 import { classifyIssue, guardrailsCheck } from '../services/ai-service';
 import { AIStructuredOutput } from '../types';
@@ -22,22 +22,49 @@ function apiResponse(success: boolean, data: any = null, error: string | null = 
   return resp;
 }
 
-async function logHistory(client: any, issueId: string, changedBy: string | null, fromStatus: string | null, toStatus: string, note?: string) {
-  await client.query(
-    `INSERT INTO issue_history (history_id, issue_id, changed_by, from_status, to_status, note)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [uuidv4(), issueId, changedBy, fromStatus, toStatus, note || null]
-  );
+// Haversine formula for distance in meters
+function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+async function logHistory(batch: any, issueId: string, changedBy: string | null, fromStatus: string | null, toStatus: string, note?: string) {
+  const ref = firestore.collection('issues').doc(issueId).collection('history').doc();
+  batch.set(ref, {
+    history_id: ref.id,
+    changed_by: changedBy,
+    from_status: fromStatus,
+    to_status: toStatus,
+    note: note || null,
+    created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+  });
 }
 
 async function sendNotification(userId: string, title: string, body: string, type: string, issueId?: string) {
   if (!userId || userId === 'anonymous') return;
   try {
-    await db.query(
-      `INSERT INTO notifications (notification_id, user_id, issue_id, title, body, notification_type, channel, deep_link)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [uuidv4(), userId, issueId || null, title, body, type, 'in_app', issueId ? `/issues/${issueId}` : null]
-    );
+    const ref = firestore.collection('notifications').doc();
+    await ref.set({
+      notification_id: ref.id,
+      user_id: userId,
+      issue_id: issueId || null,
+      title,
+      body,
+      notification_type: type,
+      channel: 'in_app',
+      deep_link: issueId ? `/issues/${issueId}` : null,
+      is_read: false,
+      created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    });
   } catch (err) {
     console.error('Notification error:', err);
   }
@@ -46,12 +73,16 @@ async function sendNotification(userId: string, title: string, body: string, typ
 async function awardXP(userId: string, points: number) {
   if (!userId || userId === 'anonymous') return;
   try {
-    await db.query(
-      `UPDATE users SET xp_points = xp_points + $1, streak_last_active = CURRENT_DATE,
-       streak_days = CASE WHEN streak_last_active = CURRENT_DATE - 1 THEN streak_days + 1 ELSE 1 END
-       WHERE user_id = $2`,
-      [points, userId]
-    );
+    const userRef = firestore.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return;
+    
+    const data = userDoc.data()!;
+    let streak = data.streak_days || 0;
+    // Simplified streak logic for NoSQL: just increment XP
+    await userRef.update({
+      xp_points: firebaseAdmin.firestore.FieldValue.increment(points)
+    });
   } catch (err) {
     console.error('XP award error:', err);
   }
@@ -60,41 +91,34 @@ async function awardXP(userId: string, points: number) {
 // GET /api/issues - List issues with filters
 router.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { status, category, severity, ward_id, lat, lng, radius_m, limit = '50', offset = '0' } = req.query;
-    const conditions: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
+    const { status, category, severity, ward_id, lat, lng, radius_m, limit = '50' } = req.query;
+    
+    let query: any = firestore.collection('issues');
 
-    if (status) { conditions.push(`i.status = $${idx++}`); values.push(status); }
-    if (category) { conditions.push(`i.issue_type = $${idx++}`); values.push(category); }
-    if (severity) { conditions.push(`i.severity = $${idx++}`); values.push(severity); }
-    if (ward_id) { conditions.push(`i.ward_id = $${idx++}`); values.push(ward_id); }
+    if (status) query = query.where('status', '==', status);
+    if (category) query = query.where('issue_type', '==', category);
+    if (severity) query = query.where('severity', '==', severity);
+    if (ward_id) query = query.where('ward_id', '==', ward_id);
+
+    // orderBy requires compound indexes if mixed with where, so we sort in memory for now or just order by created_at if no complex filters
+    query = query.orderBy('created_at', 'desc').limit(parseInt(limit as string, 10));
+
+    const snapshot = await query.get();
+    let issues = snapshot.docs.map((doc: any) => ({ issue_id: doc.id, ...doc.data() }));
+
+    // In-memory Geospatial Filtering (Haversine)
     if (lat && lng && radius_m) {
-      conditions.push(`ST_DWithin(i.geometry::geography, ST_SetSRID(ST_MakePoint($${idx++}, $${idx++}), 4326)::geography, $${idx++})`);
-      values.push(parseFloat(lng as string), parseFloat(lat as string), parseFloat(radius_m as string));
+      const centerLat = parseFloat(lat as string);
+      const centerLng = parseFloat(lng as string);
+      const radius = parseFloat(radius_m as string);
+      issues = issues.filter((i: any) => {
+        if (!i.latitude || !i.longitude) return false;
+        const dist = getDistanceMeters(centerLat, centerLng, i.latitude, i.longitude);
+        return dist <= radius;
+      });
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const countResult = await db.query(`SELECT COUNT(*) FROM issues i ${where}`, values);
-    const total = parseInt(countResult.rows[0].count, 10);
-
-    values.push(parseInt(limit as string, 10), parseInt(offset as string, 10));
-    const result = await db.query(
-      `SELECT i.*, u.name as reporter_name,
-        COALESCE(json_agg(DISTINCT jsonb_build_object('media_url', m.media_url, 'media_type', m.media_type, 'upload_type', m.upload_type)) FILTER (WHERE m.media_id IS NOT NULL), '[]') as media
-       FROM issues i
-       LEFT JOIN users u ON i.reporter_id = u.user_id
-       LEFT JOIN issue_media m ON i.issue_id = m.issue_id
-       ${where}
-       GROUP BY i.issue_id, u.name
-       ORDER BY
-         CASE i.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-         i.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      values
-    );
-
-    res.json(apiResponse(true, result.rows, null, { total, offset: parseInt(offset as string), limit: parseInt(limit as string) }));
+    res.json(apiResponse(true, issues, null, { total: issues.length }));
   } catch (err: any) {
     console.error(err);
     res.status(500).json(apiResponse(false, null, err.message));
@@ -104,21 +128,25 @@ router.get('/', verifyToken, async (req: AuthRequest, res: Response) => {
 // GET /api/issues/heatmap/public - public heatmap GeoJSON
 router.get('/heatmap/public', async (_req: Request, res: Response) => {
   try {
-    const result = await db.query(
-      `SELECT issue_id, issue_type, severity, status, latitude, longitude
-       FROM issues WHERE status NOT IN ('closed') LIMIT 2000`
-    );
-    const features = result.rows.map(row => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [row.longitude, row.latitude] },
-      properties: {
-        issue_id: row.issue_id,
-        issue_type: row.issue_type,
-        severity: row.severity,
-        status: row.status,
-        weight: row.severity === 'critical' ? 4 : row.severity === 'high' ? 3 : row.severity === 'medium' ? 2 : 1,
-      },
-    }));
+    const snapshot = await firestore.collection('issues')
+      .where('status', 'in', ['reported', 'verification', 'assigned', 'in_progress'])
+      .limit(1000)
+      .get();
+      
+    const features = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [data.longitude, data.latitude] },
+        properties: {
+          issue_id: doc.id,
+          issue_type: data.issue_type,
+          severity: data.severity,
+          status: data.status,
+          weight: data.severity === 'critical' ? 4 : data.severity === 'high' ? 3 : data.severity === 'medium' ? 2 : 1,
+        },
+      };
+    });
     res.json(apiResponse(true, { type: 'FeatureCollection', features }));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
@@ -128,10 +156,8 @@ router.get('/heatmap/public', async (_req: Request, res: Response) => {
 // GET /api/issues/clusters - cluster insights
 router.get('/clusters', verifyToken, async (_req: AuthRequest, res: Response) => {
   try {
-    const result = await db.query(
-      `SELECT * FROM cluster_insights ORDER BY issue_count DESC, generated_at DESC LIMIT 20`
-    );
-    res.json(apiResponse(true, result.rows));
+    const snapshot = await firestore.collection('cluster_insights').orderBy('issue_count', 'desc').limit(20).get();
+    res.json(apiResponse(true, snapshot.docs.map(d => ({ cluster_id: d.id, ...d.data() }))));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }
@@ -141,42 +167,30 @@ router.get('/clusters', verifyToken, async (_req: AuthRequest, res: Response) =>
 router.get('/:id', verifyToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const issueResult = await db.query(
-      `SELECT i.*, u.name as reporter_name, u.trust_score as reporter_trust,
-        COALESCE(json_agg(DISTINCT jsonb_build_object('media_url', m.media_url, 'media_type', m.media_type, 'upload_type', m.upload_type, 'uploaded_by', m.uploaded_by)) FILTER (WHERE m.media_id IS NOT NULL), '[]') as media
-       FROM issues i
-       LEFT JOIN users u ON i.reporter_id = u.user_id
-       LEFT JOIN issue_media m ON i.issue_id = m.issue_id
-       WHERE i.issue_id = $1
-       GROUP BY i.issue_id, u.name, u.trust_score`,
-      [id]
-    );
-    if (issueResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
+    const issueDoc = await firestore.collection('issues').doc(id).get();
+    if (!issueDoc.exists) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
 
-    const historyResult = await db.query(
-      `SELECT h.*, u.name as changed_by_name FROM issue_history h
-       LEFT JOIN users u ON h.changed_by = u.user_id
-       WHERE h.issue_id = $1 ORDER BY h.created_at ASC`,
-      [id]
-    );
-    const verificationResult = await db.query(
-      `SELECT v.*, u.name as verifier_name FROM verifications v
-       LEFT JOIN users u ON v.citizen_id = u.user_id
-       WHERE v.issue_id = $1 ORDER BY v.created_at DESC`,
-      [id]
-    );
-    const commentsResult = await db.query(
-      `SELECT c.*, u.name as author_name FROM comment_moderation c
-       LEFT JOIN users u ON c.user_id = u.user_id
-       WHERE c.issue_id = $1 AND c.is_visible = true ORDER BY c.created_at ASC`,
-      [id]
-    );
+    const issue = { issue_id: id, ...issueDoc.data() } as any;
+
+    // Fetch reporter name
+    if (issue.reporter_id) {
+      const reporterDoc = await firestore.collection('users').doc(issue.reporter_id).get();
+      if (reporterDoc.exists) {
+        issue.reporter_name = reporterDoc.data()?.name;
+        issue.reporter_trust = reporterDoc.data()?.trust_score;
+      }
+    }
+
+    // Fetch Subcollections
+    const historySnap = await firestore.collection('issues').doc(id).collection('history').orderBy('created_at', 'asc').get();
+    const verificationsSnap = await firestore.collection('issues').doc(id).collection('verifications').orderBy('created_at', 'desc').get();
+    const commentsSnap = await firestore.collection('issues').doc(id).collection('comments').orderBy('created_at', 'asc').get();
 
     res.json(apiResponse(true, {
-      ...issueResult.rows[0],
-      history: historyResult.rows,
-      verifications: verificationResult.rows,
-      comments: commentsResult.rows,
+      ...issue,
+      history: historySnap.docs.map(d => d.data()),
+      verifications: verificationsSnap.docs.map(d => d.data()),
+      comments: commentsSnap.docs.map(d => d.data()),
     }));
   } catch (err: any) {
     console.error(err);
@@ -186,7 +200,6 @@ router.get('/:id', verifyToken, async (req: AuthRequest, res: Response) => {
 
 // POST /api/issues - Create new issue
 router.post('/', verifyToken, issueSubmissionLimiter, async (req: AuthRequest, res: Response) => {
-  const client = await db.connect();
   try {
     const { title, description, latitude, longitude, address_text, is_anonymous, device_fingerprint, base64_images } = req.body;
 
@@ -194,157 +207,153 @@ router.post('/', verifyToken, issueSubmissionLimiter, async (req: AuthRequest, r
       return res.status(400).json(apiResponse(false, null, 'Latitude and longitude are required'));
     }
 
-    // Guardrails check
     if (description) {
       const guardrail = await guardrailsCheck(description);
-      if (!guardrail.pass) {
-        return res.status(400).json(apiResponse(false, null, `Content blocked: ${guardrail.reason}`));
-      }
+      if (!guardrail.pass) return res.status(400).json(apiResponse(false, null, `Content blocked: ${guardrail.reason}`));
     }
 
-    // AI classification
     const aiResult: AIStructuredOutput = await classifyIssue(
       base64_images || [],
       description || title || ''
     );
 
-    const issueId = uuidv4();
+    const issueId = firestore.collection('issues').doc().id;
     const reporterId = is_anonymous ? null : req.user!.uid;
     const initialStatus = aiResult.confidence >= 0.65 ? 'verification' : 'reported';
 
-    await client.query('BEGIN');
+    const batch = firestore.batch();
+    const issueRef = firestore.collection('issues').doc(issueId);
 
-    const issueResult = await client.query(
-      `INSERT INTO issues (
-        issue_id, reporter_id, is_anonymous, device_fingerprint, title, description,
-        issue_type, subcategory, severity, status, latitude, longitude,
-        address_text, ai_confidence, ai_summary, ai_department_recommendation, ai_raw_response,
-        public_safety_risk, environmental_risk
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-      RETURNING *`,
-      [
-        issueId, reporterId, is_anonymous || false, device_fingerprint || null,
-        title || aiResult.summary || 'Civic Issue', description || '',
-        aiResult.issue_type, aiResult.subcategory || null, aiResult.severity, initialStatus,
-        latitude, longitude, address_text || null,
-        aiResult.confidence, aiResult.summary, aiResult.department, JSON.stringify(aiResult),
-        aiResult.public_safety_risk || false, aiResult.environmental_risk || false,
-      ]
-    );
-
-    const issue = issueResult.rows[0];
-
-    // Store media if provided
+    const mediaArr = [];
     if (base64_images && base64_images.length > 0) {
-      const mediaId = uuidv4();
-      await client.query(
-        `INSERT INTO issue_media (media_id, issue_id, media_url, media_type, uploaded_by, upload_type)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [mediaId, issueId, `data:image/jpeg;base64,${base64_images[0].slice(0, 50)}...`, 'image', reporterId, 'citizen_report']
-      );
+      mediaArr.push({
+        media_url: `data:image/jpeg;base64,${base64_images[0].slice(0, 50)}...`,
+        media_type: 'image',
+        upload_type: 'citizen_report'
+      });
     }
 
-    await logHistory(client, issueId, reporterId, null, initialStatus, 'Issue submitted');
+    const issueData = {
+      reporter_id: reporterId,
+      is_anonymous: is_anonymous || false,
+      device_fingerprint: device_fingerprint || null,
+      title: title || aiResult.summary || 'Civic Issue',
+      description: description || '',
+      issue_type: aiResult.issue_type,
+      subcategory: aiResult.subcategory || null,
+      severity: aiResult.severity,
+      status: initialStatus,
+      latitude,
+      longitude,
+      address_text: address_text || null,
+      ai_confidence: aiResult.confidence,
+      ai_summary: aiResult.summary,
+      ai_department_recommendation: aiResult.department,
+      ai_raw_response: JSON.stringify(aiResult),
+      public_safety_risk: aiResult.public_safety_risk || false,
+      environmental_risk: aiResult.environmental_risk || false,
+      media: mediaArr,
+      verification_score: 0,
+      verification_count: 0,
+      created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    };
 
-    await client.query('COMMIT');
+    batch.set(issueRef, issueData);
 
-    // Award XP in background
+    await logHistory(batch, issueId, reporterId, null, initialStatus, 'Issue submitted');
+    await batch.commit();
+
     if (!is_anonymous && req.user?.uid) {
       awardXP(req.user.uid, 20).catch(console.error);
-      sendNotification(req.user.uid, 'Issue Submitted!', `Your report "${issue.title}" is being processed.`, 'submission', issueId).catch(console.error);
+      sendNotification(req.user.uid, 'Issue Submitted!', `Your report "${issueData.title}" is being processed.`, 'submission', issueId).catch(console.error);
     }
 
-    // Check for nearby duplicates
-    const dupCheck = await db.query(
-      `SELECT issue_id, title, issue_type, status FROM issues
-       WHERE issue_id != $1 AND issue_type = $2 AND status NOT IN ('closed', 'resolved')
-       AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, 300)
-       LIMIT 3`,
-      [issueId, aiResult.issue_type, longitude, latitude]
-    );
+    // Duplicate Check (Haversine in memory)
+    const activeIssuesSnap = await firestore.collection('issues')
+      .where('issue_type', '==', aiResult.issue_type)
+      .where('status', 'in', ['reported', 'verification', 'assigned', 'in_progress'])
+      .get();
+      
+    const nearby_duplicates = activeIssuesSnap.docs
+      .map(d => ({ issue_id: d.id, ...d.data() } as any))
+      .filter(i => i.issue_id !== issueId && getDistanceMeters(latitude, longitude, i.latitude, i.longitude) <= 300)
+      .slice(0, 3);
 
     res.status(201).json(apiResponse(true, {
-      ...issue,
-      media: [],
-      nearby_duplicates: dupCheck.rows,
+      issue_id: issueId,
+      ...issueData,
+      nearby_duplicates,
     }));
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json(apiResponse(false, null, err.message));
-  } finally {
-    client.release();
   }
 });
 
 // POST /api/issues/:id/verify - Verify an issue
 router.post('/:id/verify', verifyToken, async (req: AuthRequest, res: Response) => {
-  const client = await db.connect();
   try {
     const { action_type, comment } = req.body;
     const validActions = ['confirm', 'dispute', 'corroborate', 'still_unresolved', 'false_report_flag'];
-    if (!validActions.includes(action_type)) {
-      return res.status(400).json(apiResponse(false, null, 'Invalid action type'));
-    }
+    if (!validActions.includes(action_type)) return res.status(400).json(apiResponse(false, null, 'Invalid action type'));
 
-    const issueResult = await db.query('SELECT * FROM issues WHERE issue_id = $1', [req.params.id]);
-    if (issueResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
-    const issue = issueResult.rows[0];
+    const issueRef = firestore.collection('issues').doc(req.params.id);
+    const issueDoc = await issueRef.get();
+    if (!issueDoc.exists) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
+    const issue = issueDoc.data() as any;
 
-    const userResult = await db.query('SELECT trust_score, role FROM users WHERE user_id = $1', [req.user!.uid]);
-    const user = userResult.rows[0] || { trust_score: 1.0, role: 'citizen' };
-    const trustWeight = user.trust_score || 1.0;
+    const userDoc = await firestore.collection('users').doc(req.user!.uid).get();
+    const user = userDoc.exists ? userDoc.data() : { trust_score: 1.0, role: 'citizen' };
+    const trustWeight = user?.trust_score || 1.0;
     const weightedContribution = action_type === 'confirm' ? trustWeight : (action_type === 'dispute' ? -trustWeight * 0.5 : 0);
 
-    // Check guardrails on comment
     if (comment) {
       const guardrail = await guardrailsCheck(comment);
-      if (!guardrail.pass) {
-        return res.status(400).json(apiResponse(false, null, `Comment blocked: ${guardrail.reason}`));
-      }
+      if (!guardrail.pass) return res.status(400).json(apiResponse(false, null, `Comment blocked: ${guardrail.reason}`));
     }
 
-    await client.query('BEGIN');
-
-    await client.query(
-      `INSERT INTO verifications (verification_id, issue_id, citizen_id, action_type, trust_weight, weighted_contribution, comment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [uuidv4(), req.params.id, req.user!.uid, action_type, trustWeight, weightedContribution, comment || null]
-    );
+    const batch = firestore.batch();
+    const verificationRef = issueRef.collection('verifications').doc();
+    batch.set(verificationRef, {
+      verification_id: verificationRef.id,
+      citizen_id: req.user!.uid,
+      action_type,
+      trust_weight: trustWeight,
+      weighted_contribution: weightedContribution,
+      comment: comment || null,
+      created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    });
 
     const newScore = (issue.verification_score || 0) + (action_type === 'confirm' ? trustWeight : 0);
     const newCount = (issue.verification_count || 0) + 1;
-    await client.query(
-      `UPDATE issues SET verification_score = $1, verification_count = $2 WHERE issue_id = $3`,
-      [newScore, newCount, req.params.id]
-    );
-
-    // Check escalation threshold (5.0 trust points)
-    const isModOrAdmin = user.role === 'moderator' || user.role === 'admin';
+    
+    let newStatus = issue.status;
+    const isModOrAdmin = user?.role === 'moderator' || user?.role === 'admin';
     const fastTrack = isModOrAdmin && action_type === 'confirm';
+
     if ((newScore >= 5.0 || fastTrack) && issue.status === 'verification') {
-      await client.query(
-        `UPDATE issues SET status = 'assigned' WHERE issue_id = $1`,
-        [req.params.id]
-      );
-      await logHistory(client, req.params.id, req.user!.uid, 'verification', 'assigned', 'Verification threshold met — auto-escalated');
-      // Notify reporter
+      newStatus = 'assigned';
+      await logHistory(batch, req.params.id, req.user!.uid, 'verification', 'assigned', 'Verification threshold met — auto-escalated');
       if (issue.reporter_id) {
-        await sendNotification(issue.reporter_id, 'Issue Verified!', `Your issue "${issue.title}" has been verified and escalated.`, 'escalation', req.params.id);
+        sendNotification(issue.reporter_id, 'Issue Verified!', `Your issue "${issue.title}" has been verified and escalated.`, 'escalation', req.params.id);
       }
     }
 
-    await client.query('COMMIT');
+    batch.update(issueRef, {
+      verification_score: newScore,
+      verification_count: newCount,
+      status: newStatus,
+      updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    });
 
+    await batch.commit();
     await awardXP(req.user!.uid, 5).catch(console.error);
 
-    res.json(apiResponse(true, { verification_id: uuidv4(), weighted_contribution: weightedContribution, new_score: newScore }));
+    res.json(apiResponse(true, { verification_id: verificationRef.id, weighted_contribution: weightedContribution, new_score: newScore }));
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json(apiResponse(false, null, err.message));
-  } finally {
-    client.release();
   }
 });
 
@@ -355,16 +364,18 @@ router.post('/:id/comment', verifyToken, async (req: AuthRequest, res: Response)
     if (!content?.trim()) return res.status(400).json(apiResponse(false, null, 'Comment content required'));
 
     const guardrail = await guardrailsCheck(content);
-    if (!guardrail.pass) {
-      return res.status(400).json(apiResponse(false, null, `Comment blocked: ${guardrail.reason}`));
-    }
+    if (!guardrail.pass) return res.status(400).json(apiResponse(false, null, `Comment blocked: ${guardrail.reason}`));
 
-    const result = await db.query(
-      `INSERT INTO comment_moderation (comment_id, issue_id, user_id, content, guardrail_pass)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [uuidv4(), req.params.id, req.user!.uid, content.trim(), true]
-    );
-    res.status(201).json(apiResponse(true, result.rows[0]));
+    const commentRef = firestore.collection('issues').doc(req.params.id).collection('comments').doc();
+    const commentData = {
+      comment_id: commentRef.id,
+      user_id: req.user!.uid,
+      content: content.trim(),
+      is_visible: true,
+      created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    };
+    await commentRef.set(commentData);
+    res.status(201).json(apiResponse(true, commentData));
   } catch (err: any) {
     res.status(500).json(apiResponse(false, null, err.message));
   }
@@ -372,49 +383,38 @@ router.post('/:id/comment', verifyToken, async (req: AuthRequest, res: Response)
 
 // POST /api/issues/:id/status - Update issue status (officer/admin)
 router.post('/:id/status', verifyOfficerOrAdmin, async (req: AuthRequest, res: Response) => {
-  const client = await db.connect();
   try {
     const { status, note, proof_media_url } = req.body;
     const validStatuses = ['assigned', 'in_progress', 'resolved', 'closed', 'reopened'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json(apiResponse(false, null, 'Invalid status'));
-    }
+    if (!validStatuses.includes(status)) return res.status(400).json(apiResponse(false, null, 'Invalid status'));
 
-    const issueResult = await db.query('SELECT * FROM issues WHERE issue_id = $1', [req.params.id]);
-    if (issueResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
-    const issue = issueResult.rows[0];
+    const issueRef = firestore.collection('issues').doc(req.params.id);
+    const issueDoc = await issueRef.get();
+    if (!issueDoc.exists) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
+    const issue = issueDoc.data() as any;
 
     if (status === 'resolved' && !proof_media_url) {
       return res.status(400).json(apiResponse(false, null, 'Proof media URL required for resolution'));
     }
 
-    await client.query('BEGIN');
-
-    const updateFields: string[] = ['status = $1', 'updated_at = NOW()'];
-    const updateValues: any[] = [status];
-    let paramIdx = 2;
+    const batch = firestore.batch();
+    const updates: any = { status, updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp() };
 
     if (status === 'resolved') {
-      updateFields.push(`resolved_at = NOW()`, `resolution_proof_uploaded = true`);
-      // Store proof media
-      await client.query(
-        `INSERT INTO issue_media (media_id, issue_id, media_url, media_type, uploaded_by, upload_type)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [uuidv4(), req.params.id, proof_media_url, 'image', req.user!.uid, 'officer_proof']
-      );
+      updates.resolved_at = firebaseAdmin.firestore.FieldValue.serverTimestamp();
+      updates.resolution_proof_uploaded = true;
+      updates.media = firebaseAdmin.firestore.FieldValue.arrayUnion({
+        media_url: proof_media_url,
+        media_type: 'image',
+        upload_type: 'officer_proof'
+      });
     }
-    if (status === 'closed') updateFields.push(`closed_at = NOW()`);
+    if (status === 'closed') updates.closed_at = firebaseAdmin.firestore.FieldValue.serverTimestamp();
 
-    updateValues.push(req.params.id);
-    await client.query(
-      `UPDATE issues SET ${updateFields.join(', ')} WHERE issue_id = $${paramIdx}`,
-      updateValues
-    );
+    batch.update(issueRef, updates);
+    await logHistory(batch, req.params.id, req.user!.uid, issue.status, status, note);
+    await batch.commit();
 
-    await logHistory(client, req.params.id, req.user!.uid, issue.status, status, note);
-    await client.query('COMMIT');
-
-    // Notifications
     if (issue.reporter_id && !issue.is_anonymous) {
       const msgMap: any = {
         assigned: `Your issue "${issue.title}" has been assigned to a team.`,
@@ -423,99 +423,87 @@ router.post('/:id/status', verifyOfficerOrAdmin, async (req: AuthRequest, res: R
         closed: `Your issue "${issue.title}" has been closed.`,
       };
       if (msgMap[status]) {
-        await sendNotification(issue.reporter_id, `Issue ${status.replace('_', ' ')}`, msgMap[status], 'status_update', req.params.id);
+        sendNotification(issue.reporter_id, `Issue ${status.replace('_', ' ')}`, msgMap[status], 'status_update', req.params.id);
       }
     }
 
     res.json(apiResponse(true, { issue_id: req.params.id, status }));
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json(apiResponse(false, null, err.message));
-  } finally {
-    client.release();
   }
 });
 
 // POST /api/issues/:id/assign - Assign issue to officer/team
 router.post('/:id/assign', verifyOfficerOrAdmin, async (req: AuthRequest, res: Response) => {
-  const client = await db.connect();
   try {
     const { officer_id, team_id, due_date } = req.body;
 
-    const issueResult = await db.query('SELECT * FROM issues WHERE issue_id = $1', [req.params.id]);
-    if (issueResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
-    const issue = issueResult.rows[0];
+    const issueRef = firestore.collection('issues').doc(req.params.id);
+    const issueDoc = await issueRef.get();
+    if (!issueDoc.exists) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
+    const issue = issueDoc.data() as any;
 
-    await client.query('BEGIN');
+    const batch = firestore.batch();
+    batch.update(issueRef, {
+      assigned_officer_id: officer_id || null,
+      assigned_team_id: team_id || null,
+      status: 'assigned',
+      sla_due_at: due_date || issue.sla_due_at || null,
+      updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+    });
 
-    await client.query(
-      `UPDATE issues SET assigned_officer_id = $1, assigned_team_id = $2, status = 'assigned',
-       sla_due_at = COALESCE($3, sla_due_at), updated_at = NOW()
-       WHERE issue_id = $4`,
-      [officer_id || null, team_id || null, due_date || null, req.params.id]
-    );
-
-    await logHistory(client, req.params.id, req.user!.uid, issue.status, 'assigned',
-      `Assigned to ${officer_id ? 'officer' : 'team'} ${officer_id || team_id}`);
-
-    await client.query('COMMIT');
+    await logHistory(batch, req.params.id, req.user!.uid, issue.status, 'assigned', `Assigned to ${officer_id || team_id}`);
+    await batch.commit();
 
     if (issue.reporter_id && !issue.is_anonymous) {
-      await sendNotification(issue.reporter_id, 'Issue Assigned', `Your issue has been assigned.`, 'assignment', req.params.id);
+      sendNotification(issue.reporter_id, 'Issue Assigned', `Your issue has been assigned.`, 'assignment', req.params.id);
     }
     if (officer_id) {
-      await sendNotification(officer_id, 'Issue Assigned to You', `Issue "${issue.title}" has been assigned to you.`, 'assignment', req.params.id);
+      sendNotification(officer_id, 'Issue Assigned to You', `Issue "${issue.title}" has been assigned to you.`, 'assignment', req.params.id);
     }
 
     res.json(apiResponse(true, { issue_id: req.params.id, status: 'assigned', officer_id, team_id }));
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json(apiResponse(false, null, err.message));
-  } finally {
-    client.release();
   }
 });
 
 // POST /api/issues/:id/reopen - Reopen a resolved/closed issue
 router.post('/:id/reopen', verifyToken, async (req: AuthRequest, res: Response) => {
-  const client = await db.connect();
   try {
     const { reason } = req.body;
-    const issueResult = await db.query('SELECT * FROM issues WHERE issue_id = $1', [req.params.id]);
-    if (issueResult.rows.length === 0) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
-    const issue = issueResult.rows[0];
+    const issueRef = firestore.collection('issues').doc(req.params.id);
+    const issueDoc = await issueRef.get();
+    if (!issueDoc.exists) return res.status(404).json(apiResponse(false, null, 'Issue not found'));
+    const issue = issueDoc.data() as any;
 
     if (!['resolved', 'closed'].includes(issue.status)) {
       return res.status(400).json(apiResponse(false, null, 'Issue must be resolved or closed to reopen'));
     }
 
-    await client.query('BEGIN');
+    const batch = firestore.batch();
+    const reopen_count = (issue.reopen_count || 0) + 1;
+    batch.update(issueRef, {
+      status: 'reopened',
+      reopen_count,
+      updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      resolved_at: null,
+      closed_at: null
+    });
 
-    await client.query(
-      `UPDATE issues SET status = 'reopened', reopen_count = reopen_count + 1, updated_at = NOW(), resolved_at = NULL, closed_at = NULL
-       WHERE issue_id = $1`,
-      [req.params.id]
-    );
-
-    await logHistory(client, req.params.id, req.user!.uid, issue.status, 'reopened', reason || 'Reopened by citizen');
-    await client.query('COMMIT');
+    await logHistory(batch, req.params.id, req.user!.uid, issue.status, 'reopened', reason || 'Reopened by citizen');
+    await batch.commit();
 
     await awardXP(req.user!.uid, 8).catch(console.error);
 
-    // Escalate if reopened 3+ times
-    if ((issue.reopen_count || 0) + 1 >= 3) {
-      if (issue.assigned_officer_id) {
-        await sendNotification(issue.assigned_officer_id, 'Issue Reopened (3rd time)', `Issue "${issue.title}" has been reopened multiple times.`, 'escalation', req.params.id);
-      }
+    if (reopen_count >= 3 && issue.assigned_officer_id) {
+      sendNotification(issue.assigned_officer_id, 'Issue Reopened (3rd time)', `Issue "${issue.title}" has been reopened multiple times.`, 'escalation', req.params.id);
     }
 
-    res.json(apiResponse(true, { issue_id: req.params.id, status: 'reopened', reopen_count: (issue.reopen_count || 0) + 1 }));
+    res.json(apiResponse(true, { issue_id: req.params.id, status: 'reopened', reopen_count }));
   } catch (err: any) {
-    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json(apiResponse(false, null, err.message));
-  } finally {
-    client.release();
   }
 });
 

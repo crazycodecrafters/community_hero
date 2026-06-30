@@ -1,119 +1,164 @@
-import { db } from '../config/db';
-import { v4 as uuidv4 } from 'uuid';
+import { firestore, firebaseAdmin } from '../config/firebase';
 
-// SLA monitoring - checks every intervalMs for breached/at-risk SLAs
+// Helper: Calculate distance in meters using Haversine
+function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 export function startSLAMonitoring(intervalMs = 60000) {
   console.log('⏱️  SLA monitoring started');
 
   const run = async () => {
     try {
-      // Mark SLA breached
-      const breachedResult = await db.query(`
-        UPDATE issues
-        SET sla_breach_notified = true, updated_at = NOW()
-        WHERE status NOT IN ('resolved', 'closed')
-          AND sla_due_at < NOW()
-          AND sla_breach_notified = false
-        RETURNING issue_id, title, assigned_officer_id, reporter_id
-      `);
+      const now = new Date();
+      const snapshot = await firestore.collection('issues')
+        .where('status', 'not-in', ['closed'])
+        .get();
 
-      for (const issue of breachedResult.rows) {
-        // Notify officer
-        if (issue.assigned_officer_id) {
-          await db.query(
-            `INSERT INTO notifications (notification_id, user_id, issue_id, title, body, notification_type, channel)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT DO NOTHING`,
-            [
-              uuidv4(), issue.assigned_officer_id, issue.issue_id,
-              '🚨 SLA Breached',
-              `Issue "${issue.title}" has exceeded its SLA deadline.`,
-              'sla_breach', 'in_app',
-            ]
-          );
+      const batch = firestore.batch();
+      let operationsCount = 0;
+      let breachedCount = 0;
+
+      const issues: any[] = [];
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        issues.push({ id: doc.id, ...data });
+
+        if (data.status === 'resolved') {
+          // Auto-close issues resolved 7+ days ago
+          if (data.resolved_at) {
+            const resolvedTime = data.resolved_at.toDate ? data.resolved_at.toDate().getTime() : new Date(data.resolved_at).getTime();
+            if (now.getTime() - resolvedTime > 7 * 24 * 3600000) {
+              batch.update(doc.ref, {
+                status: 'closed',
+                closed_at: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+              });
+              operationsCount++;
+            }
+          }
+        } else {
+          // SLA Checks
+          if (data.sla_due_at) {
+            const dueTime = data.sla_due_at.toDate ? data.sla_due_at.toDate().getTime() : new Date(data.sla_due_at).getTime();
+            
+            if (now.getTime() > dueTime && !data.sla_breach_notified) {
+              batch.update(doc.ref, {
+                sla_breach_notified: true,
+                updated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+              });
+              
+              if (data.assigned_officer_id) {
+                const notifRef = firestore.collection('notifications').doc();
+                batch.set(notifRef, {
+                  notification_id: notifRef.id,
+                  user_id: data.assigned_officer_id,
+                  issue_id: doc.id,
+                  title: '🚨 SLA Breached',
+                  body: `Issue "${data.title}" has exceeded its SLA deadline.`,
+                  notification_type: 'sla_breach',
+                  channel: 'in_app',
+                  is_read: false,
+                  created_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+                });
+              }
+              breachedCount++;
+              operationsCount += 2;
+            }
+          }
         }
+      });
+
+      if (operationsCount > 0) {
+        await batch.commit();
+      }
+      
+      if (breachedCount > 0) {
+        console.log(`⚠️  SLA monitor: ${breachedCount} issues now breached`);
       }
 
-      if (breachedResult.rowCount && breachedResult.rowCount > 0) {
-        console.log(`⚠️  SLA monitor: ${breachedResult.rowCount} issues now breached`);
-      }
-
-      // Mark 75% warning
-      await db.query(`
-        UPDATE issues
-        SET sla_75_notified = true, updated_at = NOW()
-        WHERE status NOT IN ('resolved', 'closed')
-          AND sla_due_at IS NOT NULL
-          AND sla_due_at > NOW()
-          AND NOW() > sla_due_at - (sla_due_at - created_at) * 0.25
-          AND sla_75_notified = false
-      `);
-
-      // Auto-close issues resolved 7+ days ago with no reopen
-      await db.query(`
-        UPDATE issues
-        SET status = 'closed', closed_at = NOW(), updated_at = NOW()
-        WHERE status = 'resolved'
-          AND resolved_at < NOW() - INTERVAL '7 days'
-          AND closed_at IS NULL
-      `);
-
-      // Generate cluster insights
-      await generateClusterInsights();
+      await generateClusterInsights(issues);
     } catch (err) {
       console.error('SLA monitor error:', err);
     }
   };
 
-  // Run immediately, then on interval
   run();
   setInterval(run, intervalMs);
 }
 
-async function generateClusterInsights() {
+async function generateClusterInsights(issues: any[]) {
   try {
-    // Find clusters: 3+ issues of same type within 200m in last 90 days
-    const clusters = await db.query(`
-      SELECT
-        issue_type,
-        ST_Y(ST_Centroid(ST_Collect(geometry::geometry))) as center_lat,
-        ST_X(ST_Centroid(ST_Collect(geometry::geometry))) as center_lng,
-        COUNT(*) as issue_count,
-        AVG(CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END) as avg_severity_score
-      FROM issues
-      WHERE created_at > NOW() - INTERVAL '90 days'
-        AND status NOT IN ('closed')
-        AND geometry IS NOT NULL
-      GROUP BY issue_type,
-        ST_SnapToGrid(geometry::geometry, 0.002)
-      HAVING COUNT(*) >= 3
-      LIMIT 50
-    `);
+    const activeIssues = issues.filter(i => 
+      !['closed'].includes(i.status) && i.latitude && i.longitude
+    );
 
-    if (clusters.rows.length > 0) {
-      // Clear old insights
-      await db.query(`DELETE FROM cluster_insights WHERE generated_at < NOW() - INTERVAL '24 hours'`);
+    // Naive clustering: group by issue_type, then find nearby points (radius 200m)
+    const processed = new Set<string>();
+    const clusters: any[] = [];
 
-      for (const cluster of clusters.rows) {
-        const recurrenceScore = Math.min(1.0, cluster.issue_count / 10);
-        const action = cluster.avg_severity_score >= 3
-          ? `Urgent: Schedule immediate repair team dispatch for ${cluster.issue_type.replace(/_/g, ' ')} cluster`
-          : `Schedule preventive maintenance for recurring ${cluster.issue_type.replace(/_/g, ' ')} hotspot`;
+    for (const issue of activeIssues) {
+      if (processed.has(issue.id)) continue;
+      
+      const clusterMembers = activeIssues.filter(other => 
+        !processed.has(other.id) &&
+        other.issue_type === issue.issue_type &&
+        getDistanceMeters(issue.latitude, issue.longitude, other.latitude, other.longitude) <= 200
+      );
 
-        await db.query(
-          `INSERT INTO cluster_insights
-           (cluster_id, center_latitude, center_longitude, issue_type, issue_count, average_severity_score, recurrence_prediction_score, recommended_action)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            uuidv4(), cluster.center_lat, cluster.center_lng,
-            cluster.issue_type, cluster.issue_count,
-            parseFloat(cluster.avg_severity_score), recurrenceScore, action,
-          ]
-        );
+      if (clusterMembers.length >= 3) {
+        clusterMembers.forEach(m => processed.add(m.id));
+        
+        const sumLat = clusterMembers.reduce((sum, m) => sum + m.latitude, 0);
+        const sumLng = clusterMembers.reduce((sum, m) => sum + m.longitude, 0);
+        
+        let sevSum = 0;
+        clusterMembers.forEach(m => {
+          sevSum += m.severity === 'critical' ? 4 : m.severity === 'high' ? 3 : m.severity === 'medium' ? 2 : 1;
+        });
+
+        clusters.push({
+          cluster_id: firestore.collection('cluster_insights').doc().id,
+          issue_type: issue.issue_type,
+          center_lat: sumLat / clusterMembers.length,
+          center_lng: sumLng / clusterMembers.length,
+          issue_count: clusterMembers.length,
+          avg_severity_score: sevSum / clusterMembers.length,
+          generated_at: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+        });
       }
     }
+
+    if (clusters.length > 0) {
+      // Clear old insights
+      const oldSnap = await firestore.collection('cluster_insights').get();
+      const batch = firestore.batch();
+      oldSnap.forEach(doc => batch.delete(doc.ref));
+      
+      clusters.forEach(c => {
+        const action = c.avg_severity_score >= 3
+          ? `Urgent: Schedule immediate repair team dispatch for ${c.issue_type.replace(/_/g, ' ')} cluster`
+          : `Monitor: Increase verification checks for ${c.issue_type.replace(/_/g, ' ')} cluster`;
+          
+        c.recommended_action = action;
+        c.recurrence_score = Math.min(1.0, c.issue_count / 10);
+        batch.set(firestore.collection('cluster_insights').doc(c.cluster_id), c);
+      });
+      
+      await batch.commit();
+    }
   } catch (err) {
-    // Cluster generation is non-critical
-    console.error('Cluster generation error:', err);
+    console.error('Cluster insight generation error:', err);
   }
 }
