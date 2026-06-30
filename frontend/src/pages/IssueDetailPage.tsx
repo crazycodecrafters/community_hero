@@ -17,6 +17,8 @@ import { NeuButton } from '../components/ui/NeuButton';
 import { XpPop } from '../components/ui/XpPop';
 import { NeuInput } from '../components/ui/NeuInput';
 
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
 const markerIcon = new Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
