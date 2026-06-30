@@ -4,8 +4,17 @@ import { AuthRequest, verifyToken, verifyOfficerOrAdmin } from '../middleware/au
 import { classifyIssue, guardrailsCheck } from '../services/ai-service';
 import { AIStructuredOutput } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
+
+const issueSubmissionLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Limit each IP to 5 submissions per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'You are submitting issues too quickly. Please wait a minute.' },
+});
 
 function apiResponse(success: boolean, data: any = null, error: string | null = null, meta: any = null) {
   const resp: any = { success, data, error };
@@ -176,7 +185,7 @@ router.get('/:id', verifyToken, async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/issues - Create new issue
-router.post('/', verifyToken, async (req: AuthRequest, res: Response) => {
+router.post('/', verifyToken, issueSubmissionLimiter, async (req: AuthRequest, res: Response) => {
   const client = await db.connect();
   try {
     const { title, description, latitude, longitude, address_text, is_anonymous, device_fingerprint, base64_images } = req.body;

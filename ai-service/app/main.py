@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# Explicitly load the root .env file so this works perfectly outside of Docker
+load_dotenv(os.path.join(os.path.dirname(__file__), "../../../.env"))
 import json
 import base64
 import logging

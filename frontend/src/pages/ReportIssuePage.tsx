@@ -80,7 +80,8 @@ export const ReportIssuePage: React.FC = () => {
   const [xpPoints, setXpPoints] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const handleLocateMe = useCallback(() => {
+    setLocationError(null);
     if (!navigator.geolocation) {
       setLocationError('Geolocation not supported');
       return;
@@ -96,6 +97,10 @@ export const ReportIssuePage: React.FC = () => {
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }, []);
+
+  useEffect(() => {
+    handleLocateMe();
+  }, [handleLocateMe]);
 
   const handleCapture = useCallback(() => {
     fileInputRef.current?.click();
@@ -456,12 +461,12 @@ export const ReportIssuePage: React.FC = () => {
           </NeuCard>
         )}
 
-        <div className="h-56 rounded-neup overflow-hidden neu-card">
+        <div className="h-56 rounded-neup overflow-hidden neu-card relative">
           {location ? (
             <MapContainer
               center={location}
               zoom={DEFAULT_ZOOM}
-              className="h-full w-full"
+              className="h-full w-full z-10"
               zoomControl={false}
             >
               <TileLayer
@@ -476,6 +481,15 @@ export const ReportIssuePage: React.FC = () => {
               <span className="ml-2">Waiting for location...</span>
             </div>
           )}
+          
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); handleLocateMe(); }}
+            className="absolute bottom-4 right-4 z-20 bg-white p-2.5 rounded-full shadow-lg text-primary-DEFAULT hover:text-primary-dark hover:bg-gray-50 transition-colors"
+            title="Auto-Locate Me"
+          >
+            <MapPin size={20} weight="fill" />
+          </button>
         </div>
 
         <NeuCard>

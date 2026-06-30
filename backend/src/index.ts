@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { startSLAMonitoring } from './services/sla-monitor';
 import { db } from './config/db';
@@ -15,8 +17,19 @@ import officerRoutes from './routes/officer';
 
 const app = express();
 
+// Global Rate Limiting
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // Limit each IP to 200 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests from this IP, please try again after 15 minutes' },
+});
+
 // Middleware
 app.use(helmet());
+app.use(compression());
+app.use(globalLimiter);
 app.use(cors({
   origin: env.corsOrigins.split(',').map(s => s.trim()),
   credentials: true,
