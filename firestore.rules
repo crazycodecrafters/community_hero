@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Only allow users to read/write their own profile data.
+    // Admins can read all profiles.
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'admin' || request.auth.token.role == 'officer');
+      allow write: if false; // All writes to users should happen via the secure Postgres Backend sync!
+    }
+
+    // Default deny for everything else (since Postgres is the primary DB)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

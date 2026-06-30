@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f0f2f5;
+    color: #2d3436;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9cdd6;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  .neu-card {
+    background: #f0f2f5;
+    border-radius: 16px;
+    box-shadow: 8px 8px 16px #c9cdd6, -8px -8px 16px #ffffff;
+    transition: all 0.2s ease;
+  }
+
+  .neu-card:hover {
+    box-shadow: 6px 6px 12px #c9cdd6, -6px -6px 12px #ffffff;
+  }
+
+  .neu-card:active {
+    box-shadow: inset 4px 4px 8px #c9cdd6, inset -4px -4px 8px #ffffff;
+  }
+
+  .neu-card-sm {
+    background: #f0f2f5;
+    border-radius: 12px;
+    box-shadow: 4px 4px 8px #c9cdd6, -4px -4px 8px #ffffff;
+  }
+
+  .neu-button {
+    background: #f0f2f5;
+    border-radius: 12px;
+    box-shadow: 5px 5px 10px #c9cdd6, -5px -5px 10px #ffffff;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    font-weight: 600;
+    padding: 12px 24px;
+  }
+
+  .neu-button:hover {
+    box-shadow: 3px 3px 6px #c9cdd6, -3px -3px 6px #ffffff;
+  }
+
+  .neu-button:active {
+    box-shadow: inset 3px 3px 6px #c9cdd6, inset -3px -3px 6px #ffffff;
+  }
+
+  .neu-button-primary {
+    background: linear-gradient(145deg, #5a4bd1, #6c5ce7);
+    color: white;
+    box-shadow: 5px 5px 10px rgba(90, 75, 209, 0.3), -5px -5px 10px rgba(255, 255, 255, 0.5);
+  }
+
+  .neu-button-primary:hover {
+    box-shadow: 3px 3px 6px rgba(90, 75, 209, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5);
+  }
+
+  .neu-button-primary:active {
+    box-shadow: inset 3px 3px 6px rgba(72, 52, 181, 0.4), inset -3px -3px 6px rgba(90, 75, 209, 0.2);
+  }
+
+  .neu-input {
+    background: #f0f2f5;
+    border-radius: 12px;
+    box-shadow: inset 3px 3px 6px #c9cdd6, inset -3px -3px 6px #ffffff;
+    border: none;
+    outline: none;
+    padding: 14px 18px;
+    font-family: inherit;
+    font-size: 15px;
+    width: 100%;
+    transition: all 0.2s;
+  }
+
+  .neu-input:focus {
+    box-shadow: inset 3px 3px 6px #b8bcc8, inset -3px -3px 6px #ffffff;
+  }
+
+  .neu-toggle {
+    background: #f0f2f5;
+    border-radius: 50%;
+    box-shadow: 3px 3px 6px #c9cdd6, -3px -3px 6px #ffffff;
+    transition: all 0.15s;
+  }
+
+  .neu-toggle:active {
+    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
+  }
+
+  .neu-badge {
+    background: #f0f2f5;
+    border-radius: 20px;
+    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .neu-divider {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #c9cdd6, transparent);
+    margin: 16px 0;
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+
+  .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: inset 1px 1px 2px rgba(0,0,0,0.1);
+  }
+
+  .animate-on-mount {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .neu-progress {
+    background: #f0f2f5;
+    border-radius: 10px;
+    box-shadow: inset 2px 2px 4px #c9cdd6, inset -2px -2px 4px #ffffff;
+    height: 10px;
+    overflow: hidden;
+  }
+
+  .neu-progress-fill {
+    height: 100%;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #6c5ce7, #a29bfe);
+    transition: width 0.5s ease;
+    box-shadow: 0 2px 4px rgba(108, 92, 231, 0.3);
+  }
+
+  .xp-float {
+    animation: xpPop 0.5s ease-out forwards;
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+  }
+}
+
+.leaflet-container {
+  border-radius: 16px;
+  z-index: 1;
+}
+
+.cluster-marker {
+  background: #6c5ce7;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
+  border: 3px solid white;
+}
