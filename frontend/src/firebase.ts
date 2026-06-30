@@ -8,14 +8,14 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyCsDfwt4fDGWBJKlMRPzWIbBrCi0rzm0C0',
-  authDomain: 'vibe2ship-a740f.firebaseapp.com',
-  databaseURL: 'https://vibe2ship-a740f-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId: 'vibe2ship-a740f',
-  storageBucket: 'vibe2ship-a740f.firebasestorage.app',
-  messagingSenderId: '575192537847',
-  appId: '1:575192537847:web:3e8185bb6a4ec21075d1f2',
-  measurementId: 'G-PYRL2CF6WG',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCsDfwt4fDGWBJKlMRPzWIbBrCi0rzm0C0',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'vibe2ship-a740f.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://vibe2ship-a740f-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'vibe2ship-a740f',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'vibe2ship-a740f.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '575192537847',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:575192537847:web:3e8185bb6a4ec21075d1f2',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-PYRL2CF6WG',
 };
 
 const app = initializeApp(firebaseConfig);
